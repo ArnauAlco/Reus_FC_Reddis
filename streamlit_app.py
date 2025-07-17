@@ -31,7 +31,7 @@ metricas = [
 metricas = [m for m in metricas if m in df.columns]
 
 # --- Pestañas principales ---
-tab1, tab2, tab3, tab4 = st.tabs(["Radar comparativo defensivo", "Gráficos generales de equipos", "Percentiles", "Graficos jugadores"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["Radar comparativo defensivo", "Gráficos generales de equipos", "Percentiles", "Graficos jugadores", "Similitud entre jugadores"])
 
 # ====== TAB 1: RADAR ======
 with tab1:
@@ -354,10 +354,6 @@ with tab3:
     st.pyplot(fig2)
 
 
-
-
-
-    
 # ====== TAB 4: GRÁFICOS JUGADORES ======
 with tab4:
     st.header("Gráfico de comparación")
@@ -537,4 +533,144 @@ with tab4:
     st.pyplot(fig)
 
 
+
+# ====== TAB 5: SIMILITUD ======
+with tab5:
+    st.header("Similitud entre jugadores")
+
+
+    import streamlit as st
+    import pandas as pd
+    import numpy as np
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    from scipy.spatial.distance import cdist
+    from sklearn.preprocessing import StandardScaler
+    from scipy import stats
+
+    # =============== CARGA Y PREPROCESADO DE DATOS ===============
+   
+    df1 = pd.read_excel('Goalkeeper_Stats_WyScout_2.xlsx')
+    df2 = pd.read_excel('WyScout Search results.xlsx')
+
+    df1["Dif CG-xCG"] = df1["xCG"] - df1["Conceded Goals"]
+    df2["Clean sheets ratio"] = df2["Clean sheets"] / df2["Matches played"]
+
+    nombres_validos = df1["Nombre"].value_counts()
+    nombres_validos = nombres_validos[nombres_validos >= 5].index
+    df_filtrado = df1[df1["Nombre"].isin(nombres_validos)]
+    df_avg = df_filtrado.groupby("Nombre").mean(numeric_only=True).reset_index()
+    df1 = df_avg.drop(['Level'], axis=1, errors="ignore")
+
+    df_merged = pd.merge(
+        df1, df2, left_on='Nombre', right_on='Player', how='inner', 
+        suffixes=('', '_df2')
+    )
+    cols_to_drop = [col for col in df_merged.columns if col.endswith('_df2')]
+    df_merged = df_merged.drop(columns=cols_to_drop + ['Player'], errors="ignore")
+    df_merged = df_merged.rename(columns={'Nombre': 'Player'})
+
+    df_percentiles = df_merged
+    df_percentiles["Total Actions Successful %"] = (df_percentiles["Total Actions Successful"]*100) / df_percentiles["Total Actions"]
+    df_percentiles["Passes Accurate %"] = (df_percentiles["Passes Accurate"]*100) / df_percentiles["Passes"]
+    df_percentiles["Through Passes Accurate %"] = (df_percentiles["Through Passes Accurate"]*100) / df_percentiles["Through Passes"]
+    df_percentiles["Passes To Final Third Accurate %"] = (df_percentiles["Passes To Final Third Accurate"]*100) / df_percentiles["Passes To Final Third"]
+    df_percentiles["Long Passes Accurate %"] = (df_percentiles["Long Passes Accurate"]*100) / df_percentiles["Long Passes"]
+    df_percentiles["Duels Won %"] = (df_percentiles["Duels Won"]*100) / df_percentiles["Duels"]
+    df_percentiles["Defensive Duels Won %"] = (df_percentiles["Defensive Duels Won"]*100) / df_percentiles["Defensive Duels"]
+    df_percentiles["Loose Ball Duels Won %"] = (df_percentiles["Loose Ball Duels Won"]*100) / df_percentiles["Loose Ball Duels"]
+    df_percentiles["Aerial Duels Won %"] = (df_percentiles["Aerial Duels Won"]*100) / df_percentiles["Aerial Duels"]
+    df_percentiles["Losses Own Half %"] = (df_percentiles["Losses Own Half"]*100) / df_percentiles["Losses"]
+    df_percentiles["Losses Opposite Half %"] = 100 - df_percentiles["Losses Own Half %"]
+    df_percentiles["Saves With Reflexes %"] = (df_percentiles["Saves With Reflexes"]*100) / df_percentiles["Saves"]
+
+    df_percentiles = df_percentiles[~df_percentiles["Player"].isin(["B. Kamara", "L. Carević", "K. Pirić"])]
+
+    df_percentiles = df_percentiles.drop([
+        'Total Actions', 'Total Actions Successful', 'Passes', 'Passes Accurate', 'Long Passes', 'Long Passes Accurate', 
+        'Duels', 'Duels Won', 'Aerial Duels Won', 'Aerial Duels','Losses Own Half','Losses','Recoveries','Recoveries Opposite Half',
+        'Yellow card','Red card','Defensive Duels','Defensive Duels Won','Loose Ball Duels','Loose Ball Duels Won',
+        'Sliding Tackles','Sliding Tackles Won','Through Passes','Through Passes Accurate','Passes To Final Third',
+        'Passes To Final Third Accurate','xCG','Saves With Reflexes','Passes To GK','Passes To GK Accurate','Goal Kicks',
+        'Short Goal Kicks','Long Goal Kicks','Matches played','Clean sheets','Aerial duels per 90','Exits','Prevented goals',
+        'Shots Against','Shots against','xG against','Conceded goals','Conceded Goals','Minutes Played','Level','Country','Position','Dif CG-xCG'
+    ], axis=1, errors='ignore')
+
+    df_percentiles = df_percentiles.rename(columns={
+        'Yellow cards':'Yellow Cards',
+        'Red cards':'Red Cards',
+        'Minutes played':'Minutes Played',
+        'Conceded goals per 90': 'Conceded Goals',
+        'xG against per 90':'xG Against',
+        'Prevented goals per 90':'Prevented Goals',
+        'Shots against per 90':'Shots Against',
+        'Save rate, %':'Save Rate %',
+        'Exits per 90':'Exits',
+        'Clean sheets ratio':'Clean Sheets Ratio'
+    })
+
+    # =============== SELECCIÓN DE MÉTRICAS Y JUGADORES ===============
+    key_stats = {
+        'Key Stats': ['Minutes Played','Total Actions Successful %','Passes Accurate %','Long Passes Accurate %','Through Passes Accurate %','Passes To Final Third Accurate %','Losses Own Half %','Losses Opposite Half %','Aerial Duels Won %','Exits','Save Rate %','Saves With Reflexes %','Prevented Goals','Clean Sheets Ratio']
+    }
+
+    metrics_dict = key_stats  # Puedes cambiar por stats_defensores, stats_medios, etc.
+
+    metrics_list = []
+    for group in metrics_dict.values():
+        metrics_list.extend(group)
+
+    # Solo jugadores en el dataset final
+    nombres = df_percentiles["Player"].drop_duplicates().sort_values().tolist()
+    jugador_ref = st.selectbox("Selecciona jugador de referencia", nombres, index=0)
+
+    df_filtrado = df_percentiles[df_percentiles['Player'].isin(nombres)]
+    df = df_filtrado
+
+    # =============== CÁLCULO DE SIMILITUD ===============
+
+    df_stats = df[["Player"] + metrics_list].dropna().reset_index(drop=True)
+    X = df_stats[metrics_list].astype(float)
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+
+    if jugador_ref not in df_stats["Player"].values:
+        st.error(f"'{jugador_ref}' no está en el DataFrame filtrado.")
+        st.stop()
+
+    idx_ref = df_stats[df_stats["Player"] == jugador_ref].index[0]
+    ref_vector = X_scaled[idx_ref].reshape(1, -1)
+
+    distancias = cdist(ref_vector, X_scaled, metric='euclidean').flatten()
+    df_stats["distancia"] = distancias
+    df_resultado = df_stats.sort_values("distancia").reset_index(drop=True)
+    df_resultado_filtrado = df_resultado[df_resultado["Player"] != jugador_ref].copy()
+    df_resultado_filtrado["similitud"] = 1 / (1 + df_resultado_filtrado["distancia"])
+    top_similares = df_resultado_filtrado[["Player", "similitud"]].head(5)
+    top_similares = top_similares.iloc[::-1]  # Más similar arriba
+
+    # =============== GRÁFICO ===============
+    fig, ax = plt.subplots(figsize=(8, 5))
+    bars = ax.barh(top_similares["Player"], top_similares["similitud"], color='royalblue')
+    ax.set_xlabel("0 (Nada similar) — 1 (Idéntico)")
+    ax.set_title(f"Jugadores más similares a {jugador_ref}", fontsize=15, weight='bold')
+    ax.set_xlim(0, 1.05)
+
+    for bar in bars:
+        width = bar.get_width()
+        ax.text(width + 0.01, bar.get_y() + bar.get_height()/2,
+                f'{width:.3f}', va='center', fontsize=11)
+
+    metricas_texto = "\n".join(metrics_list)
+    ax.text(1.06, 0.5, "KPIs:\n" + metricas_texto,
+            fontsize=10, bbox=dict(facecolor='white', edgecolor='black', boxstyle='round,pad=0.5'),
+            va='center', ha='left', transform=ax.transAxes)
+
+    tick_labels = ax.get_yticklabels() + ax.get_xticklabels()
+    for label in tick_labels:
+        label.set_color('black')
+
+
+    plt.tight_layout()
+    st.pyplot(fig)
 
