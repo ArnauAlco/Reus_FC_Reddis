@@ -143,150 +143,175 @@ with tab2:
 with tab3:
     st.header("Gráfico de percentiles por jugador")
     
-    # --- Carga de datos ---
+    # Cargar datos solo una vez (usa @st.cache_data si lo prefieres)
     df1 = pd.read_excel('Goalkeeper_Stats_WyScout_2.xlsx')
     df2 = pd.read_excel('WyScout Search results.xlsx')
-
+    
+    # Cálculos y limpieza igual que en tu notebook
     df1["Dif CG-xCG"] = df1["xCG"] - df1["Conceded Goals"]
     df2["Clean sheets ratio"] = df2["Clean sheets"] / df2["Matches played"]
-
-    min_matches = st.slider("Mínimo de partidos jugados", min_value=1, max_value=20, value=5, key="slider_min_matches")
     nombres_validos = df1["Nombre"].value_counts()
-    nombres_validos = nombres_validos[nombres_validos >= min_matches].index
+    nombres_validos = nombres_validos[nombres_validos >= 5].index
     df_filtrado = df1[df1["Nombre"].isin(nombres_validos)]
-
     df_avg = df_filtrado.groupby("Nombre").mean(numeric_only=True).reset_index()
-    df1 = df_avg.drop(['Level'], axis=1, errors='ignore')
-
+    df1 = df_avg.drop(['Level'], axis=1, errors="ignore")
     df_merged = pd.merge(
         df1, df2, left_on='Nombre', right_on='Player', how='inner', suffixes=('', '_df2')
     )
     cols_to_drop = [col for col in df_merged.columns if col.endswith('_df2')]
-    df_merged = df_merged.drop(columns=cols_to_drop + ['Player'], errors='ignore')
+    df_merged = df_merged.drop(columns=cols_to_drop + ['Player'], errors="ignore")
     df_merged = df_merged.rename(columns={'Nombre': 'Player'})
     df_percentiles = df_merged
-    df_percentiles = df_percentiles[~df_percentiles["Player"].isin(["B. Kamara", "L. Carević", "K. Pirić"])]
+    df_percentiles["Total Actions Successful %"] = (df_percentiles["Total Actions Successful"]*100) / df_percentiles["Total Actions"]
+    df_percentiles["Passes Accurate %"] = (df_percentiles["Passes Accurate"]*100) / df_percentiles["Passes"]
+    df_percentiles["Through Passes Accurate %"] = (df_percentiles["Through Passes Accurate"]*100) / df_percentiles["Through Passes"]
+    df_percentiles["Passes To Final Third Accurate %"] = (df_percentiles["Passes To Final Third Accurate"]*100) / df_percentiles["Passes To Final Third"]
+    df_percentiles["Long Passes Accurate %"] = (df_percentiles["Long Passes Accurate"]*100) / df_percentiles["Long Passes"]
+    df_percentiles["Duels Won %"] = (df_percentiles["Duels Won"]*100) / df_percentiles["Duels"]
+    df_percentiles["Defensive Duels Won %"] = (df_percentiles["Defensive Duels Won"]*100) / df_percentiles["Defensive Duels"]
+    df_percentiles["Loose Ball Duels Won %"] = (df_percentiles["Loose Ball Duels Won"]*100) / df_percentiles["Loose Ball Duels"]
+    df_percentiles["Aerial Duels Won %"] = (df_percentiles["Aerial Duels Won"]*100) / df_percentiles["Aerial Duels"]
+    df_percentiles["Losses Own Half %"] = (df_percentiles["Losses Own Half"]*100) / df_percentiles["Losses"]
+    df_percentiles["Losses Opposite Half %"] = 100 - df_percentiles["Losses Own Half %"]
+    df_percentiles["Saves With Reflexes %"] = (df_percentiles["Saves With Reflexes"]*100) / df_percentiles["Saves"]
+    df_percentiles = df_percentiles.fillna(0)
+    # ---- renombra columnas para evitar errores por nombre ----
+    rename_dict = {
+        'Yellow cards':'Yellow Cards',
+        'Red cards':'Red Cards',
+        'Minutes played':'Minutes Played',
+        'Conceded goals per 90': 'Conceded Goals',
+        'xG against per 90':'xG Against',
+        'Prevented goals per 90':'Prevented Goals',
+        'Shots against per 90':'Shots Against',
+        'Save rate, %':'Save Rate %',
+        'Exits per 90':'Exits',
+        'Clean sheets ratio':'Clean Sheets Ratio'
+    }
+    df_percentiles = df_percentiles.rename(columns=rename_dict)
+    
+    # ---- Listado de jugadores ----
+    player_list = sorted(df_percentiles["Player"].unique())
+    player_name = st.selectbox("Selecciona jugador", player_list)
+    
+    # --- Métricas disponibles (personalízalo si quieres) ---
+    stats_porteros = {
+        'General': ['Total Actions Successful %', 'Fouls', 'Yellow Cards', 'Red Cards'],
+        'Keeper': ['Saves','Saves With Reflexes %', 'Save Rate %', 'Conceded Goals', 'Prevented Goals', 'Exits', 'Clean Sheets Ratio'],
+        'Passes': ['Received Passes','Passes Accurate %', 'Long Passes Accurate %', 'Through Passes Accurate %', 'Passes To Final Third Accurate %', 'Assists','xA', 'Losses Own Half %', 'Losses Opposite Half %'],
+        'Defensive': ['Duels Won %','Defensive Duels Won %', 'Aerial Duels Won %', 'Loose Ball Duels Won %', 'Interceptions', 'Clearances']
+    } 
+    group_colors = {
+        "General": "#1f77b4",       # azul
+        "Keeper": "#2ca02c",       # verde
+        "Passes": "#ff7f0e",         # naranja
+        "Defensive": "#d62728"  # rojo
+    }
+    metrics_dict = stats_porteros  # Cambia aquí si quieres otro bloque
+    metrics_list = []
+    for group in metrics_dict.values():
+        metrics_list.extend(group)
+    percentile_cols = [f"{m} Percentil" for m in metrics_list]
+    # Calcula percentiles solo una vez
+    # Quita duplicados de columnas
+    df_percentiles = df_percentiles.loc[:,~df_percentiles.columns.duplicated()]
 
-    # --- KPIs DERIVADAS ---
-    def safe_div(df, a, b):
-        if a not in df or b not in df:
-            return np.nan
-        return np.where((df[b]!=0) & (~df[b].isna()), (df[a]*100)/df[b], np.nan)
-
-    df_percentiles["Total Actions Successful %"] = safe_div(df_percentiles, "Total Actions Successful", "Total Actions")
-    df_percentiles["Passes Accurate %"] = safe_div(df_percentiles, "Passes Accurate", "Passes")
-    df_percentiles["Long Passes Accurate %"] = safe_div(df_percentiles, "Long Passes Accurate", "Long Passes")
-    df_percentiles["Aerial Duels Won %"] = safe_div(df_percentiles, "Aerial Duels Won", "Aerial Duels")
-    df_percentiles["Save Rate %"] = safe_div(df_percentiles, "Saves", "Shots Against")
-    df_percentiles["Saves With Reflexes %"] = safe_div(df_percentiles, "Saves With Reflexes", "Saves")
-    df_percentiles["Clean Sheets Ratio"] = safe_div(df_percentiles, "Clean sheets", "Matches played")
-    if "xG Against" in df_percentiles.columns and "Conceded Goals" in df_percentiles.columns:
-        df_percentiles["Prevented Goals"] = df_percentiles["xG Against"] - df_percentiles["Conceded Goals"]
-
-    # --- Todas las métricas posibles ---
-    all_metrics = [
-        'Total Actions Successful %',
-        'Passes Accurate %',
-        'Long Passes Accurate %',
-        'Aerial Duels Won %',
-        'Exits',
-        'Save Rate %',
-        'Saves With Reflexes %',
-        'Prevented Goals',
-        'Clean Sheets Ratio',
-        'Dif CG-xCG'
-    ]
-    # Solo las que existen y tienen al menos 1 dato
-    metrics_avail = [m for m in all_metrics if m in df_percentiles.columns and df_percentiles[m].notnull().sum() > 0]
-
-    # --- Selección de jugador y métricas ---
-    col1, col2 = st.columns(2)
-    with col1:
-        jugador = st.selectbox("Jugador", sorted(df_percentiles['Player'].dropna().unique()))
-    with col2:
-        selected_metrics = st.multiselect(
-            "Selecciona las métricas", metrics_avail,
-            default=[m for m in metrics_avail[:6]]  # Default primeras 6 que existan
-        )
-
-    if not selected_metrics:
-        st.error("Selecciona al menos una métrica.")
-        st.stop()
-
-    player = df_percentiles[df_percentiles['Player'] == jugador]
-    if player.empty:
-        st.error(f"El jugador {jugador} no fue encontrado en el DataFrame.")
-        st.stop()
-
-    # ========== 1. GRAFICO DE BARRAS DE PERCENTILES ==========
-
-    # Calcula percentil para cada métrica seleccionada
-    bars = []
-    percentiles = []
-    player_vals = []
-    for metric in selected_metrics:
-        stat = df_percentiles[metric].astype(float).dropna()
-        if stat.empty or player[metric].isna().all():
-            percentiles.append(np.nan)
-            player_vals.append(np.nan)
-        else:
-            val = player[metric].values[0]
-            player_vals.append(val)
-            try:
-                perc = stats.percentileofscore(stat, val)
-            except:
-                perc = np.nan
-            percentiles.append(perc)
-        bars.append(metric)
-
-    # Ordena de mayor a menor percentil para mejor visualización
-    order = np.argsort(percentiles)[::-1]
-    bars = np.array(bars)[order]
-    percentiles = np.array(percentiles)[order]
-    player_vals = np.array(player_vals)[order]
-
-    fig, ax = plt.subplots(figsize=(12, max(4, len(bars)*0.7)))
-    bars_display = bars if isinstance(bars, (list, np.ndarray)) else [bars]
-    # Color por percentil
-    colors = []
-    for p in percentiles:
-        if np.isnan(p):
-            colors.append("#cccccc")
+    for metric in metrics_list:
+        if metric in df_percentiles.columns and df_percentiles[metric].ndim == 1:
+            stat = df_percentiles[metric].astype(float)
+            df_percentiles[f"{metric} Percentil"] = stat.rank(pct=True) * 100
+        
+    df_player = df_percentiles[df_percentiles['Player'] == player_name]
+    profile = pd.DataFrame({
+        "Metric": metrics_list,
+        "Percentile": [df_player[f"{m} Percentil"].values[0] if f"{m} Percentil" in df_player.columns else None for m in metrics_list]
+    })
+    # Asocia colores de grupo
+    metric_to_group = {}
+    for group, metrics in metrics_dict.items():
+        for m in metrics:
+            metric_to_group[m] = group
+    profile['Grupo'] = profile['Metric'].map(metric_to_group)
+    profile['ColorGrupo'] = profile['Grupo'].map(group_colors)
+    def color_percentil(p):
+        if pd.isna(p):
+            return 'gray'
         elif p >= 70:
-            colors.append("#7ED957")  # verde
+            return 'green'
         elif p >= 40:
-            colors.append("#F4E04D")  # amarillo
+            return 'yellow'
         elif p >= 20:
-            colors.append("#FFA500")  # naranja
+            return 'orange'
         else:
-            colors.append("#F46E6E")  # rojo
+            return 'red'
+    profile['Color'] = profile['Percentile'].apply(color_percentil)
 
-    ax.barh(bars, percentiles, color=colors, edgecolor='black')
-    for i, (v, p) in enumerate(zip(player_vals, percentiles)):
-        label = f"{v:.2f}" if not np.isnan(v) else "NA"
-        ax.text(p+2 if not np.isnan(p) else 2, i, label, va='center', ha='left', fontsize=12, color="#444")
-
+    # --- Gráfico ---
+    fig, ax = plt.subplots(figsize=(14, 7))
+    profile_plot = profile[::-1]  # Invierte para que la primera quede arriba
+    ax.hlines(
+        y=profile_plot['Metric'], xmin=0, xmax=profile_plot['Percentile'],
+        color=profile_plot['Color'], lw=4
+    )
+    ax.scatter(
+        profile_plot['Percentile'], profile_plot['Metric'],
+        color=profile_plot['Color'], s=120, zorder=3
+    )
+    # Etiquetas
+    for idx, row in profile_plot.iterrows():
+        if not pd.isna(row['Percentile']):
+            ax.text(
+                row['Percentile'] + 2, row['Metric'],
+                f"{int(row['Percentile'])}",
+                va='center', ha='left', fontsize=9, color='gray'
+            )
+    # Color en ylabels
+    y_labels = ax.get_yticklabels()
+    for label in y_labels:
+        metric = label.get_text()
+        color = profile_plot[profile_plot['Metric'] == metric]['ColorGrupo'].values[0]
+        label.set_color(color)
+        label.set_fontweight('bold')
+    # Títulos de grupo
+    grouped = profile_plot.groupby('Grupo')
+    for group, data in grouped:
+        color = data['ColorGrupo'].iloc[0]
+        metric_central = data['Metric'].iloc[len(data)//2]
+        ax.text(
+            -35,  # Ajusta para mover a la izquierda
+            metric_central,
+            group,
+            va='center',
+            ha='right',
+            fontsize=12,
+            color=color,
+            rotation=90,
+            fontweight='bold'
+        )
     ax.set_xlim(-2, 110)
-    ax.set_xlabel("Percentil (dentro de todos los porteros)")
-    ax.set_title(f"Perfil de percentiles - {jugador}", fontsize=18, weight='bold', pad=15)
+    ax.set_xlabel("")
+    ax.set_ylabel("")
+    ax.set_title(f"Percentile Profile - {player_name}", fontsize=18, weight='bold', pad=20, x=0.33)
     ax.grid(axis='x', linestyle=':', alpha=0.5)
-    plt.tight_layout()
+    ax.set_axisbelow(True)
+    ax.spines[['top', 'right', 'left', 'bottom']].set_visible(False)
     st.pyplot(fig)
+
 
     # ========== 2. MINI-GRAFICOS DISTRIBUCION KDE/HIST ==========
 
-    n_stats = len(selected_metrics)
+    n_stats = len(metrics_list)
     n_cols = 3
     n_rows = int(np.ceil(n_stats / n_cols))
-    fig2, axes = plt.subplots(n_rows, n_cols, figsize=(22, n_rows*3.5))
+    fig2, axes = plt.subplots(n_rows, n_cols, figsize=(13, n_rows*4))
     axes = np.array(axes).reshape(-1)
     col = "#8897f4"
 
     for i, ax in enumerate(axes):
         if i < n_stats:
-            metric = selected_metrics[i]
+            metric = metrics_list[i]
             stat = df_percentiles[metric].astype(float).dropna()
-            player_value = player[metric].values[0] if not player[metric].isna().all() else None
+            player_value = df_player[metric].values[0] if not df_player[metric].isna().all() else None
             try:
                 percentile = stats.percentileofscore(stat, player_value) if player_value is not None else None
             except:
@@ -295,8 +320,8 @@ with tab3:
             if len(stat) == 0:
                 ax.set_facecolor("#fafafa")
                 ax.text(0.5, 0.5, "No data", transform=ax.transAxes,
-                        ha="center", va="center", fontsize=14, color="gray")
-                ax.set_title(metric, fontsize=14)
+                        ha="center", va="center", fontsize=13, color="gray")
+                ax.set_title(metric, fontsize=15)
                 ax.set_xticks([])
                 ax.set_yticks([])
                 continue
@@ -316,16 +341,16 @@ with tab3:
             titulo = f"{metric}"
             if percentile is not None and not np.isnan(percentile):
                 titulo += f"\nPercentile {int(percentile)}"
-            ax.set_title(titulo, fontsize=14)
+            ax.set_title(titulo, fontsize=13)
             ax.set(xlabel=None)
             ax.set(ylabel=None)
             ax.set(yticks=[])
         else:
             ax.axis('off')
 
-    fig2.text(0.01, 1.03, f'{jugador}', fontsize=26, fontweight='bold', ha='left', va='top')
-    fig2.text(0.99, 1.03, f'Distribución KPI vs todos los porteros', fontsize=16, ha='right', va='top')
-    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    fig2.text(0.01, 1.015, f'{player_name}', fontsize=20, fontweight='bold', ha='left', va='top')
+    fig2.text(0.99, 1.015, f'Distribución KPI vs todos los porteros', fontsize=13, ha='right', va='top')
+    plt.tight_layout(rect=[0.00, 0.00, 0.98, 0.96])
     st.pyplot(fig2)
 
 
