@@ -357,7 +357,14 @@ with tab3:
 # ====== TAB 4: GRÁFICOS JUGADORES ======
 with tab4:
     st.header("Gráfico de comparación")
-    # --- Parámetros interactivos ---
+    import pandas as pd
+    import numpy as np
+    import matplotlib.pyplot as plt
+    from soccerplots.radar_chart import Radar
+    import seaborn as sns
+    import streamlit as st
+
+    # --- 1. PARÁMETROS INTERACTIVOS ---
     min_matches = st.slider("Mínimo de partidos jugados", min_value=1, max_value=20, value=5)
     df = pd.read_excel('Goalkeeper_Stats_WyScout_2.xlsx')
     df["Dif CG-xCG"] = df["xCG"] - df["Conceded Goals"]
@@ -368,31 +375,21 @@ with tab4:
     df_filtrado = df[df["Nombre"].isin(nombres_validos)]
 
     # Limpia columnas innecesarias
-    cols_a_quitar = [
-        'Minutes Played','Conceded Goals', 'Shots Against','Exits','Total Actions','Total Actions Successful','Assists',
-        'Duels','Duels Won','Aerial Duels','Aerial Duels Won','Losses','Losses Own Half','Recoveries Opposite Half',
-        'Defensive Duels','Defensive Duels Won','Loose Ball Duels','Loose Ball Duels Won','Sliding Tackles',
-        'Sliding Tackles Won','Clearances','Fouls','Yellow card','Red card','Yellow cards','Red cards','Through Passes',
-        'Through Passes Accurate','xA','Passes To GK','Passes To GK Accurate'
-    ]
+    cols_a_quitar = [ ... ]  # tu lista de columnas a quitar
     df_filtrado = df_filtrado.drop(cols_a_quitar, axis=1, errors='ignore')
 
     # Calcula promedio por jugador
     df_avg = df_filtrado.groupby("Nombre").mean(numeric_only=True).reset_index()
-    # Elimina porteros no deseados (puedes editar esta lista)
     df_avg = df_avg[~df_avg["Nombre"].isin(["B. Kamara", "L. Carević", "K. Pirić"])]
 
     # --- Selectores interactivos ---
-    # Solo columnas numéricas
     metricas_disponibles = [col for col in df_avg.columns if col != "Nombre" and pd.api.types.is_numeric_dtype(df_avg[col])]
     metric_value = st.selectbox("Selecciona la métrica a comparar", metricas_disponibles)
     jugadores_disponibles = df_avg["Nombre"].tolist()
     player1 = st.selectbox("Jugador 1", jugadores_disponibles, index=0)
     player2 = st.selectbox("Jugador 2", jugadores_disponibles, index=1 if len(jugadores_disponibles) > 1 else 0)
 
-    # --- Ordena por la métrica seleccionada
-    df_avg = df_avg.sort_values(by=metric_value, ascending=False)
-    # Obtén los valores de cada jugador seleccionado
+    # --- 2. SWARMPLOT (Gráfico barra comparativo simple) ---
     try:
         p1_val = df_avg.loc[df_avg["Nombre"] == player1, metric_value].values[0]
         p2_val = df_avg.loc[df_avg["Nombre"] == player2, metric_value].values[0]
@@ -400,23 +397,19 @@ with tab4:
         st.error("Selecciona jugadores válidos.")
         st.stop()
 
-    # --- Colores y fondo para Streamlit ---
-    text_color = 'white'
-    background = '#313332'
-
-    # --- Gráfico ---
     fig, ax = plt.subplots(figsize=(10, 5))
+    background = '#313332'
+    text_color = 'white'
     fig.set_facecolor(background)
     ax.patch.set_facecolor(background)
+    import matplotlib as mpl
     mpl.rcParams['xtick.color'] = text_color
     mpl.rcParams['ytick.color'] = text_color
     ax.grid(ls='dotted', lw=.5, color='lightgrey', axis='y', zorder=1)
     for x in ['top', 'bottom', 'left', 'right']:
         ax.spines[x].set_visible(False)
-    # Swarmplot
     sns.swarmplot(x=metric_value, data=df_avg, color='white', zorder=1, ax=ax)
     offset = 0.13
-    # Overlay jugadores seleccionados
     ax.scatter(p1_val, 0, c='red', edgecolor='white', s=200, zorder=2)
     ax.text(p1_val, 0 + offset, player1, color=text_color, ha='center', va='bottom', fontsize=11)
     ax.scatter(p2_val, 0, c='blue', edgecolor='white', s=200, zorder=2)
@@ -426,111 +419,80 @@ with tab4:
         color=text_color, fontsize=14, loc='center', pad=30
     )
     ax.set_xlabel(metric_value, color=text_color)
-    # Ajusta el eje y para limpieza visual
     ax.set_ylim(-0.1, 0.25)
     ax.get_yaxis().set_visible(False)
     plt.tight_layout(rect=[0, 0, 1, 0.93])
     st.pyplot(fig)
 
-        # --- 1. Carga y preprocesado de datos ---
-    df1 = pd.read_excel('Goalkeeper_Stats_WyScout_2.xlsx')
-    df2 = pd.read_excel('WyScout Search results.xlsx')
-    df1["Dif CG-xCG"] = df1["xCG"] - df1["Conceded Goals"]
-    df2["Clean sheets ratio"] = df2["Clean sheets"] / df2["Matches played"]
-    # Solo jugadores con más de N partidos jugados
-    min_matches = st.slider("Mínimo de partidos jugados", min_value=1, max_value=20, value=5, key="slider2")
-    nombres_validos = df1["Nombre"].value_counts()
-    nombres_validos = nombres_validos[nombres_validos >= min_matches].index
-    df_filtrado = df1[df1["Nombre"].isin(nombres_validos)]
-    df_avg = df_filtrado.groupby("Nombre").mean(numeric_only=True).reset_index()
-    df1 = df_avg.drop(['Level'], axis=1, errors="ignore")
-    df_merged = pd.merge(
-        df1, df2, left_on='Nombre', right_on='Player', how='inner', suffixes=('', '_df2')
-    )
-    cols_to_drop = [col for col in df_merged.columns if col.endswith('_df2')]
-    df_merged = df_merged.drop(columns=cols_to_drop + ['Player'], errors="ignore")
-    df_merged = df_merged.rename(columns={'Nombre': 'Player'})
-    df_percentiles = df_merged
-
-    # --- 2. KPIs y métricas ---
-    key_stats = {
-        'Key Stats': [
-            'Passes Accurate %','Long Passes Accurate %','Through Passes Accurate %','Passes To Final Third Accurate %',
-            'Losses Own Half %','Losses Opposite Half %','Aerial Duels Won %','Exits','Save Rate %','Saves With Reflexes %',
-            'Prevented Goals','Clean Sheets Ratio'
-        ]
-    }
-
-    # Calcula métricas derivadas si no existen
-    derivadas = [
-        ("Total Actions Successful %", ["Total Actions Successful", "Total Actions"], lambda x, y: 100*x/y),
-        ("Passes Accurate %", ["Passes Accurate", "Passes"], lambda x, y: 100*x/y),
-        ("Long Passes Accurate %", ["Long Passes Accurate", "Long Passes"], lambda x, y: 100*x/y),
-        ("Through Passes Accurate %", ["Through Passes Accurate", "Through Passes"], lambda x, y: 100*x/y),
-        ("Passes To Final Third Accurate %", ["Passes To Final Third Accurate", "Passes To Final Third"], lambda x, y: 100*x/y),
-        ("Duels Won %", ["Duels Won", "Duels"], lambda x, y: 100*x/y),
-        ("Defensive Duels Won %", ["Defensive Duels Won", "Defensive Duels"], lambda x, y: 100*x/y),
-        ("Loose Ball Duels Won %", ["Loose Ball Duels Won", "Loose Ball Duels"], lambda x, y: 100*x/y),
-        ("Aerial Duels Won %", ["Aerial Duels Won", "Aerial Duels"], lambda x, y: 100*x/y),
-        ("Losses Own Half %", ["Losses Own Half", "Losses"], lambda x, y: 100*x/y),
-        ("Losses Opposite Half %", ["Losses Own Half %"], lambda x: 100-x),
-        ("Saves With Reflexes %", ["Saves With Reflexes", "Saves"], lambda x, y: 100*x/y),
-    ]
-    for name, cols, func in derivadas:
-        if name not in df_percentiles.columns and all(c in df_percentiles.columns for c in cols):
-            try:
-                df_percentiles[name] = func(*[df_percentiles[c] for c in cols])
-            except:
-                df_percentiles[name] = np.nan
-
-    # --- 3. Selección de métricas y jugadores ---
-    metricas_disponibles = [col for grupo in key_stats.values() for col in grupo if col in df_percentiles.columns]
-    st.write("Puedes modificar las métricas clave desde el código o añadir más opciones avanzadas.")
-    jugadores_disponibles = df_percentiles["Player"].unique().tolist()
-    jugadores_seleccionados = st.multiselect("Elige los jugadores a mostrar", jugadores_disponibles, default=jugadores_disponibles[:10])
-
-    df_stats = df_percentiles[df_percentiles["Player"].isin(jugadores_seleccionados)][["Player"] + metricas_disponibles].dropna().reset_index(drop=True)
-
-    # --- 4. Normalización 0-10 ---
+    # --- 3. HEATMAP DE PUNTUACIONES NORMALIZADAS ---
+    metricas_heatmap = metricas_disponibles.copy()
+    df_stats = df_avg[["Nombre"] + metricas_heatmap].dropna().reset_index(drop=True)
     df_stats_scaled = df_stats.copy()
-    for col in metricas_disponibles:
+    for col in metricas_heatmap:
         min_val = df_stats_scaled[col].min()
         max_val = df_stats_scaled[col].max()
         if max_val > min_val:
             df_stats_scaled[col + "_score"] = 10 * (df_stats_scaled[col] - min_val) / (max_val - min_val)
         else:
             df_stats_scaled[col + "_score"] = 0
-
-    score_cols = [col + "_score" for col in metricas_disponibles]
-
-    # --- 5. Pesos y score final ---
-    st.write("Pesos para cada KPI (entre 0.8 y 1 recomendado):")
-    default_pesos = [0.9, 0.9, 0.8, 0.9, 0.9, 0.8, 0.9, 0.8, 1.0, 0.8, 1.0, 1.0][:len(score_cols)]
-    pesos = []
-    for i, col in enumerate(score_cols):
-        pesos.append(st.number_input(f"{metricas_disponibles[i]}", min_value=0.1, max_value=2.0, value=float(default_pesos[i]), step=0.1, key=f"peso_{col}"))
-    X_relative = df_stats_scaled[score_cols].values
-    df_stats_scaled["player_score_10"] = (X_relative * pesos).sum(axis=1) / np.sum(pesos)
-
-    # --- 6. Ranking y heatmap ---
-    ranking_final = df_stats_scaled[["Player", "player_score_10"] + score_cols].sort_values("player_score_10", ascending=False).reset_index(drop=True)
-    st.subheader("Ranking de porteros (Score 0-10)")
-    st.dataframe(ranking_final[["Player", "player_score_10"]].style.background_gradient(cmap='YlGnBu'))
-
-    # --- 7. Heatmap (top 10 o todos seleccionados) ---
-    st.subheader("Heatmap de puntuaciones normalizadas")
-    top10 = ranking_final.head(10).set_index("Player")
+    score_cols = [col + "_score" for col in metricas_heatmap]
+    df_stats_scaled["player_score_10"] = df_stats_scaled[score_cols].mean(axis=1)
+    ranking_final = df_stats_scaled[["Nombre", "player_score_10"] + score_cols].sort_values("player_score_10", ascending=False).reset_index(drop=True)
+    top10 = ranking_final.head(10).set_index("Nombre")
     scores_mtx = top10[score_cols]
-
-    fig, ax = plt.subplots(figsize=(1+len(score_cols), max(8, 0.8*len(top10))))
-    sns.heatmap(scores_mtx, annot=True, cmap="YlGnBu", cbar=True, linewidths=0.5, fmt=".1f", ax=ax)
-    ax.set_title("Individual Score (0-10) - Best Goalkeepers", fontsize=14, weight="bold", color='black')
-    ax.set_ylabel("Player", color='black', fontsize=12, weight='bold')
-    ax.set_xlabel("KPI", color='black', fontsize=12, weight='bold')
-    ax.set_yticklabels(top10.index, rotation=0, fontsize=12, weight='bold', color='black')
-    ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha='right', color='black')
+    fig_heat, ax_heat = plt.subplots(figsize=(1+len(score_cols), max(8, 0.8*len(top10))))
+    sns.heatmap(scores_mtx, annot=True, cmap="YlGnBu", cbar=True, linewidths=0.5, fmt=".1f", ax=ax_heat)
+    ax_heat.set_title("Individual Score (0-10) - Best Goalkeepers", fontsize=14, weight="bold", color='black')
+    ax_heat.set_ylabel("Player", color='black', fontsize=12, weight='bold')
+    ax_heat.set_xlabel("KPI", color='black', fontsize=12, weight='bold')
+    ax_heat.set_yticklabels(top10.index, rotation=0, fontsize=12, weight='bold', color='black')
+    ax_heat.set_xticklabels(ax_heat.get_xticklabels(), rotation=45, ha='right', color='black')
     plt.subplots_adjust(left=0.3, right=0.98, top=0.92, bottom=0.05)
-    st.pyplot(fig)
+    st.pyplot(fig_heat)
+
+    # --- 4. RADAR PARA COMPARAR AMBOS JUGADORES EN VARIAS MÉTRICAS ---
+    from soccerplots.radar_chart import Radar
+
+    # Radar sólo con las métricas seleccionadas arriba
+    radar_metrics = st.multiselect("Métricas a comparar en el radar", metricas_disponibles, default=metricas_disponibles[:6])
+    params = [m for m in radar_metrics if m in df_avg.columns and pd.api.types.is_numeric_dtype(df_avg[m])]
+    if len(params) < 3:
+        st.warning("El radar necesita al menos 3 métricas seleccionadas.")
+    else:
+        ranges = []
+        for m in params:
+            serie = df_avg[m].astype(float)
+            mini = serie.min()
+            maxi = serie.max()
+            if pd.isnull(mini) or pd.isnull(maxi) or mini == maxi:
+                mini, maxi = 0, 1
+            ranges.append((mini, maxi))
+        a_row = df_avg[df_avg['Nombre'] == player1]
+        b_row = df_avg[df_avg['Nombre'] == player2]
+        a_values = [float(a_row[m].values[0]) if not a_row.empty and not pd.isnull(a_row[m].values[0]) else 0 for m in params]
+        b_values = [float(b_row[m].values[0]) if not b_row.empty and not pd.isnull(b_row[m].values[0]) else 0 for m in params]
+        values = [a_values, b_values]
+        title = dict(
+            title_name=player1, title_color='blue',
+            subtitle_name='', subtitle_color='blue',
+            title_name_2=player2, title_color_2='red',
+            subtitle_name_2='', subtitle_color_2='red',
+            title_fontsize=18, subtitle_fontsize=15
+        )
+        endnote = '@futboldata_pafos'
+        radar = Radar()
+        fig2, ax2 = radar.plot_radar(
+            ranges=ranges,
+            params=params,
+            values=values,
+            radar_color=['blue', 'red'],
+            alphas=[.75, .6],
+            title=title,
+            endnote=endnote,
+            compare=True
+        )
+        st.pyplot(fig2)
+
 
 
 
