@@ -1,6 +1,6 @@
-streamlit
 matplotlib
 seaborn
 soccerplots
 pandas
 numpy
+scipy
