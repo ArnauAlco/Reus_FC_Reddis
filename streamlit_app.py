@@ -360,49 +360,113 @@ with tab4:
     import pandas as pd
     import numpy as np
     import matplotlib.pyplot as plt
-    from soccerplots.radar_chart import Radar
     import seaborn as sns
+    from soccerplots.radar_chart import Radar
     import streamlit as st
 
-    # --- 1. PARÁMETROS INTERACTIVOS ---
-    min_matches = st.slider("Mínimo de partidos jugados", min_value=1, max_value=20, value=5)
+    # 1) Selección de MÉTRICAS
     df = pd.read_excel('Goalkeeper_Stats_WyScout_2.xlsx')
     df["Dif CG-xCG"] = df["xCG"] - df["Conceded Goals"]
-
-    # Solo jugadores con más de X partidos jugados
+    min_matches = st.slider("Mínimo de partidos jugados", min_value=1, max_value=20, value=5)
     nombres_validos = df["Nombre"].value_counts()
     nombres_validos = nombres_validos[nombres_validos >= min_matches].index
     df_filtrado = df[df["Nombre"].isin(nombres_validos)]
-
-    # Limpia columnas innecesarias
-    cols_a_quitar = [
-        'Minutes Played','Conceded Goals', 'Shots Against','Exits','Total Actions','Total Actions Successful','Assists',
-        'Duels','Duels Won','Aerial Duels','Aerial Duels Won','Losses','Losses Own Half','Recoveries Opposite Half',
-        'Defensive Duels','Defensive Duels Won','Loose Ball Duels','Loose Ball Duels Won','Sliding Tackles',
-        'Sliding Tackles Won','Clearances','Fouls','Yellow card','Red card','Yellow cards','Red cards','Through Passes',
-        'Through Passes Accurate','xA','Passes To GK','Passes To GK Accurate'
-    ]
-    df_filtrado = df_filtrado.drop(cols_a_quitar, axis=1, errors='ignore')
-
-    # Calcula promedio por jugador
     df_avg = df_filtrado.groupby("Nombre").mean(numeric_only=True).reset_index()
     df_avg = df_avg[~df_avg["Nombre"].isin(["B. Kamara", "L. Carević", "K. Pirić"])]
 
-    # --- Selectores interactivos ---
+    # Solo columnas numéricas y no 'Nombre'
     metricas_disponibles = [col for col in df_avg.columns if col != "Nombre" and pd.api.types.is_numeric_dtype(df_avg[col])]
-    metric_value = st.selectbox("Selecciona la métrica a comparar", metricas_disponibles)
-    jugadores_disponibles = df_avg["Nombre"].tolist()
+    params = st.multiselect(
+        "Métricas a usar (radar + heatmap)", 
+        metricas_disponibles, 
+        default=metricas_disponibles[:6]
+    )
+
+    if len(params) < 2:
+        st.warning("Selecciona al menos dos métricas para continuar.")
+        st.stop()
+
+    # 2) GRAFICO DE RANKING ("best goalkeepers" - heatmap)
+    df_stats = df_avg[["Nombre"] + params].dropna().reset_index(drop=True)
+    df_stats_scaled = df_stats.copy()
+    for col in params:
+        min_val = df_stats_scaled[col].min()
+        max_val = df_stats_scaled[col].max()
+        if max_val > min_val:
+            df_stats_scaled[col + "_score"] = 10 * (df_stats_scaled[col] - min_val) / (max_val - min_val)
+        else:
+            df_stats_scaled[col + "_score"] = 0
+    score_cols = [col + "_score" for col in params]
+    df_stats_scaled["player_score_10"] = df_stats_scaled[score_cols].mean(axis=1)
+    ranking_final = df_stats_scaled[["Nombre", "player_score_10"] + score_cols].sort_values("player_score_10", ascending=False).reset_index(drop=True)
+    st.subheader("Ranking de mejores porteros (Score 0-10)")
+    top10 = ranking_final.head(10).set_index("Nombre")
+    scores_mtx = top10[score_cols]
+    fig_heat, ax_heat = plt.subplots(figsize=(1+len(score_cols), max(8, 0.8*len(top10))))
+    sns.heatmap(scores_mtx, annot=True, cmap="YlGnBu", cbar=True, linewidths=0.5, fmt=".1f", ax=ax_heat)
+    ax_heat.set_title("Individual Score (0-10) - Best Goalkeepers", fontsize=14, weight="bold", color='black')
+    ax_heat.set_ylabel("Player", color='black', fontsize=12, weight='bold')
+    ax_heat.set_xlabel("KPI", color='black', fontsize=12, weight='bold')
+    ax_heat.set_yticklabels(top10.index, rotation=0, fontsize=12, weight='bold', color='black')
+    ax_heat.set_xticklabels(ax_heat.get_xticklabels(), rotation=45, ha='right', color='black')
+    plt.subplots_adjust(left=0.3, right=0.98, top=0.92, bottom=0.05)
+    st.pyplot(fig_heat)
+
+    # 3) SELECCIONA DOS JUGADORES PARA COMPARAR
+    st.subheader("Selecciona dos porteros para comparar en el radar y la barra")
+    jugadores_disponibles = df_stats_scaled["Nombre"].tolist()
     player1 = st.selectbox("Jugador 1", jugadores_disponibles, index=0)
     player2 = st.selectbox("Jugador 2", jugadores_disponibles, index=1 if len(jugadores_disponibles) > 1 else 0)
 
-    # --- 2. SWARMPLOT (Gráfico barra comparativo simple) ---
+    # 4) GRAFICO RADAR
+    if len(params) < 3:
+        st.warning("El radar necesita al menos 3 métricas seleccionadas.")
+    else:
+        a_row = df_stats_scaled[df_stats_scaled['Nombre'] == player1]
+        b_row = df_stats_scaled[df_stats_scaled['Nombre'] == player2]
+        # Usamos los valores originales, no los _score, para el radar
+        a_values = [float(a_row[p].values[0]) if not a_row.empty and not pd.isnull(a_row[p].values[0]) else 0 for p in params]
+        b_values = [float(b_row[p].values[0]) if not b_row.empty and not pd.isnull(b_row[p].values[0]) else 0 for p in params]
+        # Rangos
+        ranges = []
+        for p in params:
+            serie = df_avg[p].astype(float)
+            mini = serie.min()
+            maxi = serie.max()
+            if pd.isnull(mini) or pd.isnull(maxi) or mini == maxi:
+                mini, maxi = 0, 1
+            ranges.append((mini, maxi))
+        values = [a_values, b_values]
+        title = dict(
+            title_name=player1, title_color='blue',
+            subtitle_name='', subtitle_color='blue',
+            title_name_2=player2, title_color_2='red',
+            subtitle_name_2='', subtitle_color_2='red',
+            title_fontsize=18, subtitle_fontsize=15
+        )
+        endnote = '@futboldata_pafos'
+        radar = Radar()
+        fig2, ax2 = radar.plot_radar(
+            ranges=ranges,
+            params=params,
+            values=values,
+            radar_color=['blue', 'red'],
+            alphas=[.75, .6],
+            title=title,
+            endnote=endnote,
+            compare=True
+        )
+        st.pyplot(fig2)
+
+    # 5) GRAFICO SWARM (barras KDE)
+    st.subheader("Distribución de la métrica seleccionada")
+    metric_value = st.selectbox("Selecciona la métrica para la barra", params, index=0)
     try:
         p1_val = df_avg.loc[df_avg["Nombre"] == player1, metric_value].values[0]
         p2_val = df_avg.loc[df_avg["Nombre"] == player2, metric_value].values[0]
     except IndexError:
         st.error("Selecciona jugadores válidos.")
         st.stop()
-
     fig, ax = plt.subplots(figsize=(10, 5))
     background = '#313332'
     text_color = 'white'
@@ -430,79 +494,6 @@ with tab4:
     plt.tight_layout(rect=[0, 0, 1, 0.93])
     st.pyplot(fig)
 
-    # --- 3. RADAR (elige métricas) ---
-    radar_metrics = st.multiselect(
-        "Métricas a comparar en el radar",
-        metricas_disponibles,
-        default=metricas_disponibles[:6]
-    )
-    params = [m for m in radar_metrics if m in df_avg.columns and pd.api.types.is_numeric_dtype(df_avg[m])]
-
-    # --- 4. HEATMAP DE PUNTUACIONES NORMALIZADAS (solo métricas seleccionadas para radar) ---
-    if len(params) < 2:
-        st.warning("Selecciona al menos dos métricas para ver el heatmap.")
-    else:
-        df_stats = df_avg[["Nombre"] + params].dropna().reset_index(drop=True)
-        df_stats_scaled = df_stats.copy()
-        for col in params:
-            min_val = df_stats_scaled[col].min()
-            max_val = df_stats_scaled[col].max()
-            if max_val > min_val:
-                df_stats_scaled[col + "_score"] = 10 * (df_stats_scaled[col] - min_val) / (max_val - min_val)
-            else:
-                df_stats_scaled[col + "_score"] = 0
-        score_cols = [col + "_score" for col in params]
-        df_stats_scaled["player_score_10"] = df_stats_scaled[score_cols].mean(axis=1)
-        ranking_final = df_stats_scaled[["Nombre", "player_score_10"] + score_cols].sort_values("player_score_10", ascending=False).reset_index(drop=True)
-        top10 = ranking_final.head(10).set_index("Nombre")
-        scores_mtx = top10[score_cols]
-        fig_heat, ax_heat = plt.subplots(figsize=(1+len(score_cols), max(8, 0.8*len(top10))))
-        sns.heatmap(scores_mtx, annot=True, cmap="YlGnBu", cbar=True, linewidths=0.5, fmt=".1f", ax=ax_heat)
-        ax_heat.set_title("Individual Score (0-10) - Best Goalkeepers", fontsize=14, weight="bold", color='black')
-        ax_heat.set_ylabel("Player", color='black', fontsize=12, weight='bold')
-        ax_heat.set_xlabel("KPI", color='black', fontsize=12, weight='bold')
-        ax_heat.set_yticklabels(top10.index, rotation=0, fontsize=12, weight='bold', color='black')
-        ax_heat.set_xticklabels(ax_heat.get_xticklabels(), rotation=45, ha='right', color='black')
-        plt.subplots_adjust(left=0.3, right=0.98, top=0.92, bottom=0.05)
-        st.pyplot(fig_heat)
-
-    # --- 5. RADAR PARA COMPARAR AMBOS JUGADORES EN VARIAS MÉTRICAS ---
-    if len(params) < 3:
-        st.warning("El radar necesita al menos 3 métricas seleccionadas.")
-    else:
-        ranges = []
-        for m in params:
-            serie = df_avg[m].astype(float)
-            mini = serie.min()
-            maxi = serie.max()
-            if pd.isnull(mini) or pd.isnull(maxi) or mini == maxi:
-                mini, maxi = 0, 1
-            ranges.append((mini, maxi))
-        a_row = df_avg[df_avg['Nombre'] == player1]
-        b_row = df_avg[df_avg['Nombre'] == player2]
-        a_values = [float(a_row[m].values[0]) if not a_row.empty and not pd.isnull(a_row[m].values[0]) else 0 for m in params]
-        b_values = [float(b_row[m].values[0]) if not b_row.empty and not pd.isnull(b_row[m].values[0]) else 0 for m in params]
-        values = [a_values, b_values]
-        title = dict(
-            title_name=player1, title_color='blue',
-            subtitle_name='', subtitle_color='blue',
-            title_name_2=player2, title_color_2='red',
-            subtitle_name_2='', subtitle_color_2='red',
-            title_fontsize=18, subtitle_fontsize=15
-        )
-        endnote = '@futboldata_pafos'
-        radar = Radar()
-        fig2, ax2 = radar.plot_radar(
-            ranges=ranges,
-            params=params,
-            values=values,
-            radar_color=['blue', 'red'],
-            alphas=[.75, .6],
-            title=title,
-            endnote=endnote,
-            compare=True
-        )
-        st.pyplot(fig2)
 
 
 
