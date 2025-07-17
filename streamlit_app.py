@@ -375,7 +375,13 @@ with tab4:
     df_filtrado = df[df["Nombre"].isin(nombres_validos)]
 
     # Limpia columnas innecesarias
-    cols_a_quitar = [ ... ]  # tu lista de columnas a quitar
+    cols_a_quitar = [
+        'Minutes Played','Conceded Goals', 'Shots Against','Exits','Total Actions','Total Actions Successful','Assists',
+        'Duels','Duels Won','Aerial Duels','Aerial Duels Won','Losses','Losses Own Half','Recoveries Opposite Half',
+        'Defensive Duels','Defensive Duels Won','Loose Ball Duels','Loose Ball Duels Won','Sliding Tackles',
+        'Sliding Tackles Won','Clearances','Fouls','Yellow card','Red card','Yellow cards','Red cards','Through Passes',
+        'Through Passes Accurate','xA','Passes To GK','Passes To GK Accurate'
+    ]
     df_filtrado = df_filtrado.drop(cols_a_quitar, axis=1, errors='ignore')
 
     # Calcula promedio por jugador
@@ -424,38 +430,43 @@ with tab4:
     plt.tight_layout(rect=[0, 0, 1, 0.93])
     st.pyplot(fig)
 
-    # --- 3. HEATMAP DE PUNTUACIONES NORMALIZADAS ---
-    metricas_heatmap = metricas_disponibles.copy()
-    df_stats = df_avg[["Nombre"] + metricas_heatmap].dropna().reset_index(drop=True)
-    df_stats_scaled = df_stats.copy()
-    for col in metricas_heatmap:
-        min_val = df_stats_scaled[col].min()
-        max_val = df_stats_scaled[col].max()
-        if max_val > min_val:
-            df_stats_scaled[col + "_score"] = 10 * (df_stats_scaled[col] - min_val) / (max_val - min_val)
-        else:
-            df_stats_scaled[col + "_score"] = 0
-    score_cols = [col + "_score" for col in metricas_heatmap]
-    df_stats_scaled["player_score_10"] = df_stats_scaled[score_cols].mean(axis=1)
-    ranking_final = df_stats_scaled[["Nombre", "player_score_10"] + score_cols].sort_values("player_score_10", ascending=False).reset_index(drop=True)
-    top10 = ranking_final.head(10).set_index("Nombre")
-    scores_mtx = top10[score_cols]
-    fig_heat, ax_heat = plt.subplots(figsize=(1+len(score_cols), max(8, 0.8*len(top10))))
-    sns.heatmap(scores_mtx, annot=True, cmap="YlGnBu", cbar=True, linewidths=0.5, fmt=".1f", ax=ax_heat)
-    ax_heat.set_title("Individual Score (0-10) - Best Goalkeepers", fontsize=14, weight="bold", color='black')
-    ax_heat.set_ylabel("Player", color='black', fontsize=12, weight='bold')
-    ax_heat.set_xlabel("KPI", color='black', fontsize=12, weight='bold')
-    ax_heat.set_yticklabels(top10.index, rotation=0, fontsize=12, weight='bold', color='black')
-    ax_heat.set_xticklabels(ax_heat.get_xticklabels(), rotation=45, ha='right', color='black')
-    plt.subplots_adjust(left=0.3, right=0.98, top=0.92, bottom=0.05)
-    st.pyplot(fig_heat)
-
-    # --- 4. RADAR PARA COMPARAR AMBOS JUGADORES EN VARIAS MÉTRICAS ---
-    from soccerplots.radar_chart import Radar
-
-    # Radar sólo con las métricas seleccionadas arriba
-    radar_metrics = st.multiselect("Métricas a comparar en el radar", metricas_disponibles, default=metricas_disponibles[:6])
+    # --- 3. RADAR (elige métricas) ---
+    radar_metrics = st.multiselect(
+        "Métricas a comparar en el radar",
+        metricas_disponibles,
+        default=metricas_disponibles[:6]
+    )
     params = [m for m in radar_metrics if m in df_avg.columns and pd.api.types.is_numeric_dtype(df_avg[m])]
+
+    # --- 4. HEATMAP DE PUNTUACIONES NORMALIZADAS (solo métricas seleccionadas para radar) ---
+    if len(params) < 2:
+        st.warning("Selecciona al menos dos métricas para ver el heatmap.")
+    else:
+        df_stats = df_avg[["Nombre"] + params].dropna().reset_index(drop=True)
+        df_stats_scaled = df_stats.copy()
+        for col in params:
+            min_val = df_stats_scaled[col].min()
+            max_val = df_stats_scaled[col].max()
+            if max_val > min_val:
+                df_stats_scaled[col + "_score"] = 10 * (df_stats_scaled[col] - min_val) / (max_val - min_val)
+            else:
+                df_stats_scaled[col + "_score"] = 0
+        score_cols = [col + "_score" for col in params]
+        df_stats_scaled["player_score_10"] = df_stats_scaled[score_cols].mean(axis=1)
+        ranking_final = df_stats_scaled[["Nombre", "player_score_10"] + score_cols].sort_values("player_score_10", ascending=False).reset_index(drop=True)
+        top10 = ranking_final.head(10).set_index("Nombre")
+        scores_mtx = top10[score_cols]
+        fig_heat, ax_heat = plt.subplots(figsize=(1+len(score_cols), max(8, 0.8*len(top10))))
+        sns.heatmap(scores_mtx, annot=True, cmap="YlGnBu", cbar=True, linewidths=0.5, fmt=".1f", ax=ax_heat)
+        ax_heat.set_title("Individual Score (0-10) - Best Goalkeepers", fontsize=14, weight="bold", color='black')
+        ax_heat.set_ylabel("Player", color='black', fontsize=12, weight='bold')
+        ax_heat.set_xlabel("KPI", color='black', fontsize=12, weight='bold')
+        ax_heat.set_yticklabels(top10.index, rotation=0, fontsize=12, weight='bold', color='black')
+        ax_heat.set_xticklabels(ax_heat.get_xticklabels(), rotation=45, ha='right', color='black')
+        plt.subplots_adjust(left=0.3, right=0.98, top=0.92, bottom=0.05)
+        st.pyplot(fig_heat)
+
+    # --- 5. RADAR PARA COMPARAR AMBOS JUGADORES EN VARIAS MÉTRICAS ---
     if len(params) < 3:
         st.warning("El radar necesita al menos 3 métricas seleccionadas.")
     else:
@@ -492,6 +503,7 @@ with tab4:
             compare=True
         )
         st.pyplot(fig2)
+
 
 
 
