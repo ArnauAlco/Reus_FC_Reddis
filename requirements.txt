@@ -1,6 +1,8 @@
-matplotlib
-seaborn
-soccerplots
+streamlit
 pandas
 numpy
+matplotlib
+seaborn
 scipy
+soccerplots
+openpyxl
